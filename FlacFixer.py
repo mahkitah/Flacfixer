@@ -176,24 +176,24 @@ def main(base_path, pd_sz=8, up_thr=20, lw_thr=4, checkonly=False, silent=False,
     print_footer(reduction_list)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("path", help='file- or directory path')
-    choke_1 = parser.add_mutually_exclusive_group()
-    choke_1.add_argument('-s', '--silent', help='no output', action='store_true')
-    choke_1.add_argument('-c', '--checkonly', help='just show info, file will be unchanged', action='store_true')
-    parser.add_argument('-i', '--keepid3',
-                        help='don\'t remove id3 tags', action='store_true')
-    parser.add_argument('-p', '--pad_size', type=int, default=8,
-                        help='Padding size used if existing padding is outside of thresholds. Default = 8 (KiB)')
-    parser.add_argument('-u', '--upper', type=int, default=20,
-                        help='Padding is left same size when between upper and lower threshholds.'
-                             ' Upper default = 20 (KiB)')
-    parser.add_argument('-l', '--lower', type=int, default=4,
-                        help='Lower threshold. Default = 4 (KiB)')
-
-    args = parser.parse_args()
-    main(args.path, args.pad_size, args.upper, args.lower, args.checkonly, args.silent, args.keepid3)
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument("path", help='file- or directory path')
+#     choke_1 = parser.add_mutually_exclusive_group()
+#     choke_1.add_argument('-s', '--silent', help='no output', action='store_true')
+#     choke_1.add_argument('-c', '--checkonly', help='just show info, file will be unchanged', action='store_true')
+#     parser.add_argument('-i', '--keepid3',
+#                         help='don\'t remove id3 tags', action='store_true')
+#     parser.add_argument('-p', '--pad_size', type=int, default=8,
+#                         help='Padding size used if existing padding is outside of thresholds. Default = 8 (KiB)')
+#     parser.add_argument('-u', '--upper', type=int, default=20,
+#                         help='Padding is left same size when between upper and lower threshholds.'
+#                              ' Upper default = 20 (KiB)')
+#     parser.add_argument('-l', '--lower', type=int, default=4,
+#                         help='Lower threshold. Default = 4 (KiB)')
+#
+#     args = parser.parse_args()
+#     main(args.path, args.pad_size, args.upper, args.lower, args.checkonly, args.silent, args.keepid3)
 
 
 # # path = 'D:\Artist - Album (Year) FLAC\Subfolder\\03. 1 picture 3 padding.flac'

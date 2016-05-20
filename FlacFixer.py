@@ -64,41 +64,43 @@ def proper_prefix(num, suffix='B'):
     return "too big"
 
 
-def print_per_track(fstats_before, fstats_after):
+def print_per_track(track_info):
     """
-    :param fstats_before: FlacProps obj
-    :param fstats_after:  FlacProps obj
+    :param track_info: tupple with FlacProps objects
+    :return: int. - file size reduction
     """
-    if fstats_before.filename == fstats_before.base_path:
-        print_path = os.path.split(fstats_before.base_path)[1]
+    st_before = track_info[0]
+    st_after = track_info[1]
+    if st_before.filename == st_before.base_path:
+        print_path = os.path.split(st_before.base_path)[1]
     else:
-        print_path = os.path.relpath(fstats_before.filename, fstats_before.base_path)
+        print_path = os.path.relpath(st_before.filename, st_before.base_path)
     print('-' * 36)
-    print('{} ({})'.format(print_path, proper_prefix(fstats_before.file_size)))
-    for header in fstats_before.id3_headers:
+    print('{} ({})'.format(print_path, proper_prefix(st_before.file_size)))
+    for header in st_before._id3_headers:
         print(' {} tags'.format(header))
-    if fstats_before.pad_list:
-        for block in fstats_before.pad_list:
+    if st_before.pad_list:
+        for block in st_before.pad_list:
             print(' Padding block: {}'.format(proper_prefix(block)))
     else:
         print(' No padding found')
-    if fstats_before.pic_list:
-        for pic in fstats_before.pic_list:
+    if st_before.pic_list:
+        for pic in st_before.pic_list:
             print(' Picture: {}'.format(proper_prefix(pic)))
     else:
         print(' No pictures found')
-    if fstats_after:  # when 'check only', fstats_after = None
+    if st_after:  # when 'check only', st_after = None
         print()
-        if not fstats_after.pic_list:
-            if fstats_before.pic_list:
+        if not st_after.pic_list:
+            if st_before.pic_list:
                 print(' Pictures succesfully removed')
         else:
-            print(' {} pictures remaining'.format(len(fstats_after.pic_list)))
-        if sum(fstats_after.pad_list) != sum(fstats_before.pad_list):
-            print(' New padding: {}'.format(proper_prefix(sum(fstats_after.pad_list))))
+            print(' {} pictures remaining'.format(len(st_after.pic_list)))
+        if sum(st_after.pad_list) != sum(st_before.pad_list):
+            print(' New padding: {}'.format(proper_prefix(sum(st_after.pad_list))))
         else:
-            print(' Padding was left as found: {}'.format(proper_prefix(sum(fstats_after.pad_list))))
-        file_size_reduction = fstats_before.file_size - fstats_after.file_size
+            print(' Padding was left as found: {}'.format(proper_prefix(sum(st_after.pad_list))))
+        file_size_reduction = st_before.file_size - st_after.file_size
         if file_size_reduction:
             print(' File size reduction: {}'.format(proper_prefix(file_size_reduction)))
 
@@ -122,7 +124,7 @@ def padding_wrapper(padding_args):
         y.padding = padding size (better said: amount of unused space between header and audio.
         y.size = size of music content  (not used here)
         """
-        if 1024 * low < y.padding < 1024 * up:
+        if 1024 * low <= y.padding <= 1024 * up:
             return y.padding
         else:
             return 1024 * size
@@ -167,17 +169,18 @@ def main(base_path, pd_sz=8, up_thr=20, lw_thr=4, checkonly=False, silent=False,
         raise Exception('{} is not a valid path'.format(base_path))
     reduction_list = []
     for file_path in file_list:
-        fstats_before, fstats_after = track_work(file_path, base_path,
+        track_info = track_work(file_path, base_path,
                                                  (pd_sz, up_thr, lw_thr), checkonly, keepid3, keep_pic)
-        if not silent and fstats_before:  # only flacs have fstats:
-            file_size_reduction = fstats_before.file_size - fstats_after.file_size
-            reduction_list.append(file_size_reduction)
-            print_per_track(fstats_before, fstats_after)
+        if not silent and track_info:  # only flacs have track_info:
+            if track_info[1]:  # 'check_only' doesn't have info[1]
+                file_size_reduction = track_info[0].file_size - track_info[1].file_size
+                reduction_list.append(file_size_reduction)
+            print_per_track(track_info)
     print_footer(reduction_list)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='FlacFixer romeves pictures and id3 tags from Flac files'
+    parser = argparse.ArgumentParser(description='FlacFixer removes pictures and id3 tags from Flac files'
                                                  ' and sets new padding.'
                                                  ' Optionally it can be used for diagnostics alone')
     parser.add_argument("path", metavar='<input path>', help='File or folder to be checked.'
@@ -200,9 +203,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args.path, args.pad_size, args.upper, args.lower, args.checkonly, args.silent, args.keepid3, args.keep_pic)
 
-
-# # path = 'D:\Artist - Album (Year) FLAC\Subfolder\\03. 1 picture 3 padding.flac'
-# # path = "D:\Artist - Album (Year) FLAC"
-# path = "E:\\test\\aa fixer\Various - Only for the Headstrong Vol. II (flac)"
-#
-# main(path, checkonly=True)

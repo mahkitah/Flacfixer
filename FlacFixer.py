@@ -2,6 +2,7 @@ import os
 import os.path
 import argparse
 import mutagen.flac
+import hashlib
 
 
 class FlacProps:
@@ -131,7 +132,51 @@ def padding_wrapper(padding_args):
     return padding_rules
 
 
-def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic):
+def get_md5(data):
+    hash_obj = hashlib.md5(data)
+    return hash_obj.digest()
+
+
+def write_pic_to_disc(pic_obj, flac_filename, dupe_list):
+    mime_string = pic_obj.mime
+    try:
+        extension = mime_string.split('/')[1].replace('jpeg', 'jpg')
+    except IndexError:
+        extension = 'pic'
+    location = os.path.split(flac_filename)[0]
+    count = str(dupe_list[2].count(location) + 1).replace('1', '')
+    dupe_list[2].append(location)
+
+    name = '{}\\cover{}.{}'.format(location, count, extension)
+    with open(name, 'wb') as new_file:
+        new_file.write(pic_obj.data)
+
+
+def save_pictures(flac, dupe_list):
+    for pic_obj in flac.pictures:
+        quick_check = (pic_obj.width, pic_obj.height, len(pic_obj.data))  # width and hight prob. not necessary
+        if not dupe_list[0]:  # first time
+            dupe_list[0].add(quick_check)
+            checksum = get_md5(pic_obj.data)
+            dupe_list[1].add(checksum)
+            write_pic_to_disc(pic_obj, flac.filename, dupe_list)
+            continue
+
+        if quick_check in dupe_list[0]:
+            checksum = get_md5(pic_obj.data)
+            if checksum in dupe_list[1]:
+                pass
+            else:
+                dupe_list[1].add(checksum)
+                write_pic_to_disc(pic_obj, flac.filename, dupe_list)
+        else:
+            dupe_list[0].add(quick_check)
+            checksum = get_md5(pic_obj.data)
+            dupe_list[1].add(checksum)
+            write_pic_to_disc(pic_obj, flac.filename, dupe_list)
+
+
+def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic, pic_save, dupe_list):
     """
     :param file_path: path of file to be processed
     :param base_path: path that was fed into script
@@ -145,22 +190,32 @@ def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic
         flac = mutagen.flac.FLAC(file_path)
     except mutagen.flac.FLACNoHeaderError:  # file is not flac
         return
+
     fstats_before = FlacProps(flac, base_path)
     fstats_before.check_id3_header()
+
     if checkonly:
         return fstats_before, None
-    if fstats_before.pic_list and not keep_pic:
-        flac.clear_pictures()
+
+    if fstats_before.pic_list:
+        if pic_save:
+            save_pictures(flac, dupe_list)
+        if not keep_pic:
+            flac.clear_pictures()
+
     delete_id3 = False
+
     if fstats_before._id3_headers and not keep_id3:
         delete_id3 = True
+
     flac.save(padding=padding_wrapper(padding_args), deleteid3=delete_id3)
     flac.load(flac.filename)
     fstats_after = FlacProps(flac, base_path)
     return fstats_before, fstats_after
 
 
-def main(base_path, pd_sz=8, up_thr=20, lw_thr=4, checkonly=False, silent=False, keepid3=False, keep_pic=False):
+def main(base_path, pd_sz=8, up_thr=20, lw_thr=4,
+         checkonly=False, silent=False, keepid3=False, keep_pic=False, pic_save=False):
     if os.path.isfile(base_path):
         file_list = [base_path]
     elif os.path.isdir(base_path):
@@ -168,15 +223,19 @@ def main(base_path, pd_sz=8, up_thr=20, lw_thr=4, checkonly=False, silent=False,
     else:
         raise Exception('{} is not a valid path'.format(base_path))
     reduction_list = []
+    dupe_list = [set(), set(), []]
     for file_path in file_list:
-        track_info = track_work(file_path, base_path,
-                                                 (pd_sz, up_thr, lw_thr), checkonly, keepid3, keep_pic)
-        if not silent and track_info:  # only flacs have track_info:
-            if track_info[1]:  # 'check_only' doesn't have info[1]
-                file_size_reduction = track_info[0].file_size - track_info[1].file_size
-                reduction_list.append(file_size_reduction)
+        track_info = track_work(file_path, base_path, (pd_sz, up_thr, lw_thr),
+                                checkonly, keepid3, keep_pic, pic_save, dupe_list)
+        if not track_info:  # non flac
+            continue
+        if track_info[1]:  # 'check_only' doesn't have info[1]
+            file_size_reduction = track_info[0].file_size - track_info[1].file_size
+            reduction_list.append(file_size_reduction)
+        if not silent:
             print_per_track(track_info)
-    print_footer(reduction_list)
+    if not silent:
+        print_footer(reduction_list)
 
 
 if __name__ == "__main__":
@@ -188,6 +247,7 @@ if __name__ == "__main__":
     choke_1 = parser.add_mutually_exclusive_group()
     choke_1.add_argument('-s', '--silent', action='store_true', help='no visual output')
     choke_1.add_argument('-c', '--checkonly', action='store_true', help='just show info, file will be unchanged')
+    parser.add_argument('-d', '--pics2disc', action='store_true', help='Save pictures to disc')
     parser.add_argument('-k', '--keep_pic', action='store_true',
                         help='don\'t remove pictures')
     parser.add_argument('-i', '--keepid3', action='store_true',
@@ -201,5 +261,5 @@ if __name__ == "__main__":
                         help='Lower threshold. Default = 4')
 
     args = parser.parse_args()
-    main(args.path, args.pad_size, args.upper, args.lower, args.checkonly, args.silent, args.keepid3, args.keep_pic)
-
+    main(args.path, args.pad_size, args.upper, args.lower, args.checkonly,
+         args.silent, args.keepid3, args.keep_pic, args.pics2disc)

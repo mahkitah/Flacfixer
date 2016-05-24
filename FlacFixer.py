@@ -3,11 +3,12 @@ import os.path
 import argparse
 import mutagen.flac
 import hashlib
+from collections import OrderedDict
 
 
 class FlacProps:
     """
-    stores properties of a flac file
+    stores properties of a flac obj
     """
     def __init__(self, flac_type, base_path):
         self.filename = flac_type.filename
@@ -19,7 +20,7 @@ class FlacProps:
         self.pad_list = []
         for block in flac_type.metadata_blocks:
             if block.code == 6:
-                self.pic_list.append(len(block.data))
+                self.pic_list.append((len(block.data), block.width, block.height))
             if block.code == 1:
                 self.pad_list.append(block.length)
 
@@ -41,15 +42,29 @@ class FlacProps:
         self._id3_headers = header_type
 
 
-def list_all_files(dirpath):
+def list_all_files(input_list):
     """
     create list of all files in dirpath + subfolders
     """
-    import_list = []
-    for root, dirs, files in os.walk(dirpath):
-        for x in files:
-            import_list.append(os.path.join(root, x))
-    return import_list
+    rough_list = []
+    for path in input_list:
+        if os.path.isfile(path):
+            rough_list.append(path)
+        elif os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                for x in files:
+                    rough_list.append(os.path.join(root, x))
+    if not rough_list:
+        raise Exception('No valid path entered')
+    clean_list = list(OrderedDict.fromkeys(rough_list))  # removes dupes while keeping order
+    common_path = os.path.commonpath(clean_list)
+
+    return clean_list, common_path
+
+
+def get_md5(data):
+    hash_obj = hashlib.md5(data)
+    return hash_obj.digest()
 
 
 def proper_prefix(num, suffix='B'):
@@ -65,56 +80,64 @@ def proper_prefix(num, suffix='B'):
     return "too big"
 
 
-def print_per_track(track_info):
-    """
-    :param track_info: tupple with FlacProps objects
-    :return: int. - file size reduction
-    """
-    st_before = track_info[0]
-    st_after = track_info[1]
-    if st_before.filename == st_before.base_path:
-        print_path = os.path.split(st_before.base_path)[1]
+def print_if_true(test, txt):
+    if test:
+        print(txt)
+
+
+def print_check(fstats_before):
+
+    if fstats_before.filename == fstats_before.base_path:
+        print_path = os.path.split(fstats_before.base_path)[1]
     else:
-        print_path = os.path.relpath(st_before.filename, st_before.base_path)
+        print_path = os.path.relpath(fstats_before.filename, fstats_before.base_path)
     print('-' * 36)
-    print('{} ({})'.format(print_path, proper_prefix(st_before.file_size)))
-    for header in st_before._id3_headers:
+    print('{} ({})'.format(print_path, proper_prefix(fstats_before.file_size)))
+    for header in fstats_before._id3_headers:
         print(' {} tags'.format(header))
-    if st_before.pad_list:
-        for block in st_before.pad_list:
+    if fstats_before.pic_list:
+        for pic in fstats_before.pic_list:
+            print(' Picture ({} x {}) {}'.format(pic[1], pic[2], proper_prefix(pic[0])))
+    else:
+        print(' No pictures found')
+    if fstats_before.pad_list:
+        for block in fstats_before.pad_list:
             print(' Padding block: {}'.format(proper_prefix(block)))
     else:
         print(' No padding found')
-    if st_before.pic_list:
-        for pic in st_before.pic_list:
-            print(' Picture: {}'.format(proper_prefix(pic)))
+
+
+def print_results(track_info):
+    """
+    :type track_info: tuple of two FlacProp instances
+    """
+    fstats_before, fstats_after = track_info
+    print()
+    if not fstats_after.pic_list:
+        if fstats_before.pic_list:
+            print(' Pictures succesfully removed')
     else:
-        print(' No pictures found')
-    if st_after:  # when 'check only', st_after = None
-        print()
-        if not st_after.pic_list:
-            if st_before.pic_list:
-                print(' Pictures succesfully removed')
-        else:
-            print(' {} pictures remaining'.format(len(st_after.pic_list)))
-        if sum(st_after.pad_list) != sum(st_before.pad_list):
-            print(' New padding: {}'.format(proper_prefix(sum(st_after.pad_list))))
-        else:
-            print(' Padding was left as found: {}'.format(proper_prefix(sum(st_after.pad_list))))
-        file_size_reduction = st_before.file_size - st_after.file_size
-        if file_size_reduction:
-            print(' File size reduction: {}'.format(proper_prefix(file_size_reduction)))
+        print(' {} pictures remaining'.format(len(fstats_after.pic_list)))
+    if sum(fstats_after.pad_list) != sum(fstats_before.pad_list):
+        print(' New padding: {}'.format(proper_prefix(sum(fstats_after.pad_list))))
+    else:
+        print(' Padding was left as found: {}'.format(proper_prefix(sum(fstats_after.pad_list))))
+    file_size_change = fstats_after.file_size - fstats_before.file_size
+    print_if_true(file_size_change < 0, ' File size reduction: {}'.format(proper_prefix(abs(file_size_change))))
+    print_if_true(file_size_change > 0, ' File size increase: {}'.format(proper_prefix(file_size_change)))
 
 
-def print_footer(reduction_list):
+def print_footer(ind_changes_list):
     """
-    :param reduction_list: list of file size reductions
+    :param ind_changes_list: list
     """
-    total = sum(reduction_list)
+    total_min = sum([abs(x) for x in ind_changes_list if x < 0])
+    total_plus = sum([x for x in ind_changes_list if x > 0])
     print('-' * 36)
-    if len(reduction_list) > 1 and total:
+    if len(ind_changes_list) > 1:
         print()
-        print('A total of {} was removed'.format(proper_prefix(total)))
+        print_if_true(total_min, 'A total of {} was removed'.format(proper_prefix(total_min)))
+        print_if_true(total_plus, 'A total of {} was added'.format(proper_prefix(total_plus)))
 
 
 def padding_wrapper(padding_args):
@@ -132,126 +155,125 @@ def padding_wrapper(padding_args):
     return padding_rules
 
 
-def get_md5(data):
-    hash_obj = hashlib.md5(data)
-    return hash_obj.digest()
-
-
-def write_pic_to_disc(pic_obj, flac_filename, dupe_list):
+def make_save_path(pic_obj, flac_filename, loc_list):
+    """
+    :param pic_obj: mutagen picture obj.
+    :param flac_filename: str.
+    :param loc_list: list of used pic. save locations
+    """
     mime_string = pic_obj.mime
     try:
         extension = mime_string.split('/')[1].replace('jpeg', 'jpg')
     except IndexError:
         extension = 'pic'
-    location = os.path.split(flac_filename)[0]
-    count = str(dupe_list[2].count(location) + 1).replace('1', '')
-    dupe_list[2].append(location)
-
-    name = '{}\\cover{}.{}'.format(location, count, extension)
-    with open(name, 'wb') as new_file:
-        new_file.write(pic_obj.data)
+    location = os.path.dirname(flac_filename)
+    count = str(loc_list.count(location) + 1).replace('1', '')
+    loc_list.append(location)
+    save_path = os.path.join(location, 'cover{}.{}'.format(count, extension))
+    return save_path
 
 
-def save_pictures(flac, dupe_list):
-    for pic_obj in flac.pictures:
-        quick_check = (pic_obj.width, pic_obj.height, len(pic_obj.data))  # width and hight prob. not necessary
-        if not dupe_list[0]:  # first time
-            dupe_list[0].add(quick_check)
-            checksum = get_md5(pic_obj.data)
-            dupe_list[1].add(checksum)
-            write_pic_to_disc(pic_obj, flac.filename, dupe_list)
-            continue
-
-        if quick_check in dupe_list[0]:
-            checksum = get_md5(pic_obj.data)
-            if checksum in dupe_list[1]:
-                pass
-            else:
-                dupe_list[1].add(checksum)
-                write_pic_to_disc(pic_obj, flac.filename, dupe_list)
-        else:
-            dupe_list[0].add(quick_check)
-            checksum = get_md5(pic_obj.data)
-            dupe_list[1].add(checksum)
-            write_pic_to_disc(pic_obj, flac.filename, dupe_list)
-
-
-def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic, pic_save, dupe_list):
+def save_pictures(flac, saved_pics, loc_list):
     """
-    :param file_path: path of file to be processed
-    :param base_path: path that was fed into script
-    :param padding_args: tupple of three ints to be passed to padding rules
-    :param checkonly: bool
-    :param keep_id3: bool
-    :param keep_pic: bool
-    :return: 2 (or less) FlacProp instances
+    :param flac: mutagen Flac obj.
+    :param saved_pics: set of tupples: {(size, checksum), ...}
+    :param loc_list: list of used pic. save locations
+    """
+    for pic_obj in flac.pictures:
+        checksum = get_md5(pic_obj.data)
+        if checksum in saved_pics:
+            pass
+        else:
+            saved_pics.add(checksum)
+            save_path = make_save_path(pic_obj, flac.filename, loc_list)
+            with open(save_path, 'wb') as new_file:
+                new_file.write(pic_obj.data)
+
+
+def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic, pic_save, saved_pics, loc_list):
+    """
+    :param file_path: str. file to be processed
+    :param base_path: str. path that fed into the script
+    :param padding_args: tupple of 3 padding settings
+    :param keep_pic: bool.
+    :param keep_id3: bool.
+    :param checkonly: bool.
+    :param checkonly, silent, keep_id3, keep_pic, pic_save: bool.
+    :param saved_pics: set of tupples: {(size, checksum), ...}
+    :param loc_list: list of used pic. save locations
     """
     try:
         flac = mutagen.flac.FLAC(file_path)
     except mutagen.flac.FLACNoHeaderError:  # file is not flac
         return
-
     fstats_before = FlacProps(flac, base_path)
     fstats_before.check_id3_header()
-
     if checkonly:
         return fstats_before, None
-
     if fstats_before.pic_list:
         if pic_save:
-            save_pictures(flac, dupe_list)
+            save_pictures(flac, saved_pics, loc_list)
         if not keep_pic:
             flac.clear_pictures()
-
     delete_id3 = False
-
     if fstats_before._id3_headers and not keep_id3:
         delete_id3 = True
-
     flac.save(padding=padding_wrapper(padding_args), deleteid3=delete_id3)
     flac.load(flac.filename)
     fstats_after = FlacProps(flac, base_path)
     return fstats_before, fstats_after
 
 
-def main(base_path, pd_sz=8, up_thr=20, lw_thr=4,
+def main(input_path_list, pd_sz=8, up_thr=20, lw_thr=4,
          checkonly=False, silent=False, keepid3=False, keep_pic=False, pic_save=False):
-    if os.path.isfile(base_path):
-        file_list = [base_path]
-    elif os.path.isdir(base_path):
-        file_list = list_all_files(base_path)
-    else:
-        raise Exception('{} is not a valid path'.format(base_path))
-    reduction_list = []
-    dupe_list = [set(), set(), []]
-    for file_path in file_list:
+    """
+    :param input_path_list: list of paths from cli input
+    :param pd_sz: int.
+    :param up_thr: int.
+    :param lw_thr: int.
+    :param checkonly: bool.
+    :param silent: bool.
+    :param keepid3: bool.
+    :param keep_pic: bool.
+    :param pic_save: bool.
+    :return: nothing
+    """
+    work_list, base_path = list_all_files(input_path_list)
+    ind_change_list = []
+    saved_pics = set()
+    loc_list = []
+
+    for file_path in work_list:
         track_info = track_work(file_path, base_path, (pd_sz, up_thr, lw_thr),
-                                checkonly, keepid3, keep_pic, pic_save, dupe_list)
-        if not track_info:  # non flac
+                                checkonly, keepid3, keep_pic, pic_save, saved_pics, loc_list)
+        if not track_info:  # non flacs
             continue
-        if track_info[1]:  # 'check_only' doesn't have info[1]
-            file_size_reduction = track_info[0].file_size - track_info[1].file_size
-            reduction_list.append(file_size_reduction)
+        if not checkonly:
+            ind_change_list.append(track_info[1].file_size - track_info[0].file_size)
         if not silent:
-            print_per_track(track_info)
+            print_check(track_info[0])
+            if not checkonly:
+                print_results(track_info)
+
     if not silent:
-        print_footer(reduction_list)
+        print_footer(ind_change_list)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='FlacFixer removes pictures and id3 tags from Flac files'
                                                  ' and sets new padding.'
                                                  ' Optionally it can be used for diagnostics alone')
-    parser.add_argument("path", metavar='<input path>', help='File or folder to be checked.'
-                                                             ' Subfolders are also checked')
+    parser.add_argument("path", nargs='+', metavar='<input path>',
+                        help='File or folder to be checked. Subfolders are also checked')
     choke_1 = parser.add_mutually_exclusive_group()
-    choke_1.add_argument('-s', '--silent', action='store_true', help='no visual output')
-    choke_1.add_argument('-c', '--checkonly', action='store_true', help='just show info, file will be unchanged')
-    parser.add_argument('-d', '--pics2disc', action='store_true', help='Save pictures to disc')
+    choke_1.add_argument('-s', '--silent', action='store_true', help='No visual output')
+    choke_1.add_argument('-c', '--checkonly', action='store_true', help='Just show info, file will be unchanged')
+    parser.add_argument('-d', '--pics2disc', action='store_true', help='Save pics to disc. '
+                                                                       '(duplicates will not be saved)')
     parser.add_argument('-k', '--keep_pic', action='store_true',
-                        help='don\'t remove pictures')
+                        help='Don\'t remove pictures')
     parser.add_argument('-i', '--keepid3', action='store_true',
-                        help='don\'t remove id3 tags')
+                        help='Don\'t remove id3 tags')
     parser.add_argument('-p', dest='pad_size', metavar='KiB', type=int, default=8,
                         help='Padding size used if existing padding is outside of thresholds. Default = 8')
     parser.add_argument('-u', dest='upper', metavar='KiB', type=int, default=20,

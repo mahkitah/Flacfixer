@@ -42,12 +42,14 @@ class FlacProps:
         self._id3_headers = header_type
 
 
-def list_all_files(input_list):
+def list_all_files(input_paths):
     """
     create list of all files in dirpath + subfolders
     """
     rough_list = []
-    for path in input_list:
+    if isinstance(input_paths, str):  # allows for string input when used as a module
+        input_paths = [input_paths]
+    for path in input_paths:
         if os.path.isfile(path):
             rough_list.append(path)
         elif os.path.isdir(path):
@@ -155,21 +157,24 @@ def padding_wrapper(padding_args):
     return padding_rules
 
 
-def make_save_path(pic_obj, flac_filename, loc_list):
+def make_save_path(mime, flac_filename, loc_list):
     """
-    :param pic_obj: mutagen picture obj.
+    :param mime: str.
     :param flac_filename: str.
-    :param loc_list: list of used pic. save locations
+    :param loc_list: list of used picture save locations
     """
-    mime_string = pic_obj.mime
     try:
-        extension = mime_string.split('/')[1].replace('jpeg', 'jpg')
+        extension = mime.split('/')[1].replace('jpeg', 'jpg')
     except IndexError:
         extension = 'pic'
     location = os.path.dirname(flac_filename)
-    count = str(loc_list.count(location) + 1).replace('1', '')
+    count = loc_list.count(location) + 1
     loc_list.append(location)
-    save_path = os.path.join(location, 'cover{}.{}'.format(count, extension))
+    save_path = os.path.join(location, 'cover{}.{}'.format(count, extension)).replace('cover1.', 'cover.')
+    while os.path.isfile(save_path):
+        loc_list.append(location)
+        count += 1
+        save_path = os.path.join(location, 'cover{}.{}'.format(count, extension))
     return save_path
 
 
@@ -185,7 +190,7 @@ def save_pictures(flac, saved_pics, loc_list):
             pass
         else:
             saved_pics.add(checksum)
-            save_path = make_save_path(pic_obj, flac.filename, loc_list)
+            save_path = make_save_path(pic_obj.mime, flac.filename, loc_list)
             with open(save_path, 'wb') as new_file:
                 new_file.write(pic_obj.data)
 
@@ -224,10 +229,10 @@ def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic
     return fstats_before, fstats_after
 
 
-def main(input_path_list, pd_sz=8, up_thr=20, lw_thr=4,
+def main(input_path, pd_sz=8, up_thr=20, lw_thr=4,
          checkonly=False, silent=False, keepid3=False, keep_pic=False, pic_save=False):
     """
-    :param input_path_list: list of paths from cli input
+    :param input_path: str. or list of strings
     :param pd_sz: int.
     :param up_thr: int.
     :param lw_thr: int.
@@ -238,7 +243,7 @@ def main(input_path_list, pd_sz=8, up_thr=20, lw_thr=4,
     :param pic_save: bool.
     :return: nothing
     """
-    work_list, base_path = list_all_files(input_path_list)
+    work_list, base_path = list_all_files(input_path)
     ind_change_list = []
     saved_pics = set()
     loc_list = []

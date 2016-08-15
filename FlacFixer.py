@@ -1,9 +1,13 @@
+import sys
+import io
 import os
 import os.path
 import argparse
 import mutagen.flac
 import hashlib
 from collections import OrderedDict
+
+sys.stdout = io.TextIOWrapper(sys.stdout.detach(), sys.stdout.encoding, 'replace')
 
 
 class FlacProps:
@@ -29,17 +33,17 @@ class FlacProps:
         Looks for id3v1 and v2 headers in files
         :return: list of found header names (strings)
         """
-        fileobj = open(self.filename, 'rb')
-        header_type = []
-        fileobj.seek(0)
-        header = fileobj.read(3)
-        if header == b"ID3":
-            header_type.append('id3v2')
-        fileobj.seek(-128, 2)
-        header_v1 = fileobj.read(3)
-        if header_v1 == b'TAG':
-            header_type.append('id3v1')
-        self._id3_headers = header_type
+        with open(self.filename, 'rb') as fileobj:
+            header_type = []
+            fileobj.seek(0)
+            header = fileobj.read(3)
+            if header == b"ID3":
+                header_type.append('id3v2')
+            fileobj.seek(-128, 2)
+            header_v1 = fileobj.read(3)
+            if header_v1 == b'TAG':
+                header_type.append('id3v1')
+            self._id3_headers = header_type
 
 
 def list_all_files(input_paths):

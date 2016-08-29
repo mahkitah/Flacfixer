@@ -213,8 +213,16 @@ def track_work(file_path, base_path, padding_args, checkonly, keep_id3, keep_pic
     """
     try:
         flac = mutagen.flac.FLAC(file_path)
+
     except mutagen.flac.FLACNoHeaderError:  # file is not flac
         return
+
+    except mutagen.flac.error as err:  # file < 4 bytes
+        if str(err).startswith('file said 4 bytes'):
+            return
+        else:
+            raise err
+
     fstats_before = FlacProps(flac, base_path)
     fstats_before.check_id3_header()
     if checkonly:
